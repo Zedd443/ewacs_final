@@ -1,7 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
 import makeWASocket, {
-  useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys'
@@ -10,6 +9,7 @@ import qrcode from 'qrcode-terminal'
 import QRCode from 'qrcode'
 import pino from 'pino'
 import { handleMessage } from './src/handlers/message.js'
+import { useSupabaseAuthState } from './src/services/authState.js'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -53,7 +53,7 @@ app.listen(PORT, () => {
 })
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_session')
+  const { state, saveCreds } = await useSupabaseAuthState()
   const { version } = await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({
