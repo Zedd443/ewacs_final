@@ -21,3 +21,10 @@ COPY . .
 
 # Jalankan aplikasi
 CMD ["npm", "start"]
+
+COPY . .
+
+#Port
+EXPOSE 3000
+
+CMD ["npm", "start"]
