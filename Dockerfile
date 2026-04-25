@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:20
 
 RUN apt-get update && apt-get install -y \
     libvips-dev \
@@ -10,6 +10,8 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
+
+ARG CACHEBUST=1
 
 EXPOSE 3000
 
