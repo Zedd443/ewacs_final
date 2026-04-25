@@ -1,6 +1,5 @@
 import { getRekapBulanan, namaBulan } from '../services/rekap.js'
 import { getSession, setSession, clearSession } from '../utils/session.js'
-import { getRekapBulanan, namaBulan } from '../services/rekap.js'
 import { generateDailyCheck, generateMaintenanceCheck } from '../utils/template.js'
 import { extractAssetFromImage } from '../services/ocr.js'
 import { saveDailyCheck, saveMaintenanceCheck, getRekapShift, getRekapUnit, getShift, updateIP } from '../services/supabase.js'
