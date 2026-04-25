@@ -5,7 +5,6 @@ import makeWASocket, {
   fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
-import qrcode from 'qrcode-terminal'
 import QRCode from 'qrcode'
 import pino from 'pino'
 import { handleMessage } from './src/handlers/message.js'
@@ -66,10 +65,8 @@ async function startBot() {
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      console.log('\n📱 Buka URL app untuk scan QR\n')
-      qrcode.generate(qr, { small: true })
-      // Generate QR sebagai image base64 untuk ditampilkan di browser
       currentQR = await QRCode.toDataURL(qr)
+      console.log('📱 QR siap, buka URL app untuk scan')
     }
     if (connection === 'close') {
       currentQR = null
