@@ -45,8 +45,8 @@ app.listen(PORT, () => {
       } catch (err) {
         console.error(`[self-ping] failed: ${err.message}`)
       }
-    }, 15 * 60 * 1000)
-    console.log(`[self-ping] aktif → ${appUrl}/health setiap 15 menit`)
+    }, 14 * 60 * 1000)
+    console.log(`[self-ping] aktif → ${appUrl}/health setiap 14 menit`)
   } else {
     console.warn('[self-ping] APP_URL tidak di-set, self-ping nonaktif')
   }
