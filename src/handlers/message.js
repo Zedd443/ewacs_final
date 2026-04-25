@@ -11,7 +11,6 @@ export async function handleMessage(sock, msg) {
                  msg.message?.extendedTextMessage?.text ||
                  msg.message?.imageMessage?.caption || ''
 
-  // Detect semua tipe image termasuk yang pakai viewOnce
   const isImage = !!(
     msg.message?.imageMessage ||
     msg.message?.viewOnceMessage?.message?.imageMessage ||
@@ -21,7 +20,7 @@ export async function handleMessage(sock, msg) {
   const session = getSession(sender)
 
   // ── HANDLER FOTO ──────────────────────────────────────────
-  if (isImage && session) {
+  if (isImage && session?.step === 'wait_photo') {
     try {
       await sock.sendMessage(jid, { text: '🔍 Membaca stiker asset...' }, { quoted: msg })
 
@@ -33,31 +32,29 @@ export async function handleMessage(sock, msg) {
       const { mu, gsab } = await extractAssetFromImage(imageBuffer)
 
       if (session.type === 'dc') {
-        await handleDcPhoto(sock, jid, sender, session, mu, gsab)
+        await handleDcPhoto(sock, jid, sender, session, mu, gsab, msg)
       } else if (session.type === 'mc') {
-        await handleMcPhoto(sock, jid, sender, session, mu, gsab)
+        await handleMcPhoto(sock, jid, sender, session, mu, gsab, msg)
       }
     } catch (err) {
       console.error('Foto error:', err.message)
       await sock.sendMessage(jid, {
-        text: '❌ Gagal baca foto. Ketik manual:\nMU[angka] GSAB[angka]\nContoh: MU3919 GSAB735024'
+        text: '❌ Gagal baca foto. Ketik manual:\n*MU[angka] GSAB[angka]*\nGunakan ? untuk digit yang tidak terbaca\nContoh: MU3?19 GSAB5267??'
       }, { quoted: msg })
     }
     return
   }
 
   // ── HANDLER INPUT MANUAL ASSET ────────────────────────────
-  // User ketik MUxxxx GSABxxxxxx saat session aktif
   if (session?.step === 'wait_photo') {
     const manualMatch = body.trim().toUpperCase().match(/^(MU[\d\?]+)\s+(GSAB[\d\?]+)$/)
     if (manualMatch) {
-      const mu   = manualMatch[1].includes('?') ? null : manualMatch[1]
-      const gsab = manualMatch[2].includes('?') ? null : manualMatch[2]
-
+      const mu   = manualMatch[1]
+      const gsab = manualMatch[2]
       if (session.type === 'dc') {
-        await handleDcPhoto(sock, jid, sender, session, mu, gsab)
+        await handleDcPhoto(sock, jid, sender, session, mu, gsab, null)
       } else if (session.type === 'mc') {
-        await handleMcPhoto(sock, jid, sender, session, mu, gsab)
+        await handleMcPhoto(sock, jid, sender, session, mu, gsab, null)
       }
       return
     }
@@ -79,7 +76,7 @@ export async function handleMessage(sock, msg) {
 
     setSession(sender, { type: 'dc', unitId, lokasi, step: 'wait_photo' })
     await sock.sendMessage(jid, {
-      text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nKirim foto stiker asset, atau ketik manual:\n*MU[angka] GSAB[angka]*\nContoh: MU3919 GSAB735024`
+      text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nKirim foto stiker asset (collage ok), atau ketik manual:\n*MU[angka] GSAB[angka]*\nGunakan ? untuk digit ragu: MU3?19 GSAB5267??`
     }, { quoted: msg })
     return
   }
@@ -97,7 +94,7 @@ export async function handleMessage(sock, msg) {
 
     setSession(sender, { type: 'mc', unitId, lokasi, step: 'wait_detail' })
     await sock.sendMessage(jid, {
-      text: `✅ *${unitId.toUpperCase()}* - ${lokasi}\n\nIsi detail + kirim foto stiker sekaligus:\n\nProblem:\nPenyebab:\nAction:\nStatus (open/closed):\nBacklog (-kalau tidak ada):`
+      text: `✅ *${unitId.toUpperCase()}* - ${lokasi}\n\nIsi detail:\n\nProblem:\nPenyebab:\nAction:\nStatus (open/closed):\nBacklog (-kalau tidak ada):\n\nKirim sekaligus dengan foto stiker`
     }, { quoted: msg })
     return
   }
@@ -123,12 +120,11 @@ export async function handleMessage(sock, msg) {
     const today = new Date().toISOString().split('T')[0]
     const shift = getShift()
     const { sudah, belum } = await getRekapShift(today, shift)
-    const belumText = belum.length > 0 ? belum.join(', ') : 'semua sudah ✅'
     await sock.sendMessage(jid, {
       text: `📋 *Rekap Shift ${shift} - ${new Date().toLocaleDateString('id-ID')}*\n\n` +
             `✅ Sudah : ${sudah.length} unit\n` +
             `❌ Belum : ${belum.length} unit\n\n` +
-            `${belum.length > 0 ? '*Belum check:*\n' + belumText : '✅ Semua unit sudah daily check!'}`
+            `${belum.length > 0 ? '*Belum check:*\n' + belum.join(', ') : '✅ Semua unit sudah daily check!'}`
     })
     return
   }
@@ -183,10 +179,14 @@ export async function handleMessage(sock, msg) {
 
 // ── HELPERS ───────────────────────────────────────────────────
 
-async function handleDcPhoto(sock, jid, sender, session, mu, gsab) {
+async function handleDcPhoto(sock, jid, sender, session, mu, gsab, originalMsg) {
   const { unitId, lokasi } = session
 
-  const template = generateDailyCheck({ unitId, lokasi, mu, gsab })
+  // Tampilkan MU???? kalau tidak terbaca, atau nilai aslinya kalau ada ? dari user
+  const muDisplay   = mu   || 'MUxxxx'
+  const gsabDisplay = gsab || 'GSABxxxxx'
+
+  const template = generateDailyCheck({ unitId, lokasi, mu: muDisplay, gsab: gsabDisplay })
 
   await saveDailyCheck({
     unit_id    : unitId.toUpperCase(),
@@ -200,18 +200,26 @@ async function handleDcPhoto(sock, jid, sender, session, mu, gsab) {
 
   clearSession(sender)
 
-  const ocrInfo = mu
-    ? `✅ OCR: ${mu} / ${gsab}`
-    : `⚠️ OCR tidak terbaca — asset dikosongkan`
 
-  await sock.sendMessage(jid, { text: `${ocrInfo}\n\n${template}` })
+  // Kirim collage balik dulu kalau ada foto
+  if (originalMsg?.message?.imageMessage) {
+    await sock.sendMessage(jid, {
+      forward: originalMsg
+    })
+  }
+
+  await sock.sendMessage(jid, { text: `${template}` })
 }
 
-async function handleMcPhoto(sock, jid, sender, session, mu, gsab) {
+async function handleMcPhoto(sock, jid, sender, session, mu, gsab, originalMsg) {
   const { unitId, lokasi, problem, penyebab, action, status, backlog } = session
 
+  const muDisplay   = mu   || 'MUxxxx'
+  const gsabDisplay = gsab || 'GSABxxxxx'
+
   const template = generateMaintenanceCheck({
-    unitId, lokasi, mu, gsab,
+    unitId, lokasi,
+    mu: muDisplay, gsab: gsabDisplay,
     problem, penyebab, action, status, backlog
   })
 
@@ -228,11 +236,14 @@ async function handleMcPhoto(sock, jid, sender, session, mu, gsab) {
 
   clearSession(sender)
 
-  const ocrInfo = mu
-    ? `✅ OCR: ${mu} / ${gsab}`
-    : `⚠️ OCR tidak terbaca — asset dikosongkan`
 
-  await sock.sendMessage(jid, { text: `${ocrInfo}\n\n${template}` })
+  if (originalMsg?.message?.imageMessage) {
+    await sock.sendMessage(jid, {
+      forward: originalMsg
+    })
+  }
+
+  await sock.sendMessage(jid, { text: `${template}` })
 }
 
 function parseMcDetail(text) {
