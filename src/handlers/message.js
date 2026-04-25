@@ -85,15 +85,35 @@ export async function handleMessage(sock, msg) {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
     if (lines.length < 4) {
       await sock.sendMessage(jid, {
-        text: '❌ Kurang lengkap. Isi 5 baris sesuai urutan:\n\n[Problem]\n[Penyebab]\n[Action]\n[Status]\n[Backlog]'
+        text: '❌ Kurang lengkap. Isi 5 baris sesuai urutan:\n\n[Problem]\n[Penyebab]\n[Action]\n[Status]\n[Backlog]\n\nBisa sekalian kirim foto stiker sebagai caption.\nKetik *!batal* untuk membatalkan.'
       }, { quoted: msg })
       return
     }
     const [problem, penyebab, action, status, backlog = '-'] = lines
-    setSession(sender, { ...session, problem, penyebab, action, status, backlog, step: 'wait_photo' })
-    await sock.sendMessage(jid, {
-      text: '📸 Kirim foto stiker asset, atau ketik manual:\n*MU[angka] GSAB[angka]*\n\nKetik *!batal* untuk membatalkan.'
-    }, { quoted: msg })
+    const updatedSession = { ...session, problem, penyebab, action, status, backlog, step: 'wait_photo' }
+
+    if (isImage) {
+      try {
+        await sock.sendMessage(jid, { text: '🔍 Membaca stiker asset...' }, { quoted: msg })
+        const imageBuffer = await downloadMediaMessage(msg, 'buffer', {}, {
+          logger: { info: () => {}, error: console.error },
+          reuploadRequest: sock.updateMediaMessage
+        })
+        const { mu, gsab } = await extractAssetFromImage(imageBuffer)
+        await handleMcPhoto(sock, jid, sender, updatedSession, mu, gsab, msg)
+      } catch (err) {
+        console.error('Foto error:', err.message)
+        setSession(sender, updatedSession)
+        await sock.sendMessage(jid, {
+          text: '❌ Gagal baca foto. Kirim ulang foto atau ketik manual:\n*MU[angka] GSAB[angka]*'
+        }, { quoted: msg })
+      }
+    } else {
+      setSession(sender, updatedSession)
+      await sock.sendMessage(jid, {
+        text: '📸 Kirim foto stiker asset, atau ketik manual:\n*MU[angka] GSAB[angka]*\n\nKetik *!batal* untuk membatalkan.'
+      }, { quoted: msg })
+    }
     return
   }
 
@@ -106,14 +126,36 @@ export async function handleMessage(sock, msg) {
     const lokasi = parts.slice(1).join(' ')
 
     if (!unitId) {
-      await sock.sendMessage(jid, { text: '❌ Format: !dc [No Unit] [Lokasi]\nContoh: !dc DT5010 Supernova' })
+      await sock.sendMessage(jid, {
+        text: '❌ Format: !dc [No Unit] [Lokasi]\nContoh: !dc DT5010 Supernova\n\nBisa sekalian kirim foto stiker sebagai caption.\nKetik *!batal* untuk membatalkan.'
+      })
       return
     }
 
-    setSession(sender, { type: 'dc', unitId, lokasi, step: 'wait_photo' })
-    await sock.sendMessage(jid, {
-      text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nKirim foto stiker asset (collage ok), atau ketik manual:\n*MU[angka] GSAB[angka]*\nGunakan ? untuk digit ragu: MU3?19 GSAB5267??\n\nKetik *!batal* untuk membatalkan.`
-    }, { quoted: msg })
+    const dcSession = { type: 'dc', unitId, lokasi, step: 'wait_photo' }
+
+    if (isImage) {
+      try {
+        await sock.sendMessage(jid, { text: '🔍 Membaca stiker asset...' }, { quoted: msg })
+        const imageBuffer = await downloadMediaMessage(msg, 'buffer', {}, {
+          logger: { info: () => {}, error: console.error },
+          reuploadRequest: sock.updateMediaMessage
+        })
+        const { mu, gsab } = await extractAssetFromImage(imageBuffer)
+        await handleDcPhoto(sock, jid, sender, dcSession, mu, gsab, msg)
+      } catch (err) {
+        console.error('Foto error:', err.message)
+        setSession(sender, dcSession)
+        await sock.sendMessage(jid, {
+          text: '❌ Gagal baca foto. Kirim ulang foto atau ketik manual:\n*MU[angka] GSAB[angka]*'
+        }, { quoted: msg })
+      }
+    } else {
+      setSession(sender, dcSession)
+      await sock.sendMessage(jid, {
+        text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nKirim foto stiker asset (collage ok), atau ketik manual:\n*MU[angka] GSAB[angka]*\nGunakan ? untuk digit ragu: MU3?19 GSAB5267??\n\nKetik *!batal* untuk membatalkan.`
+      }, { quoted: msg })
+    }
     return
   }
 
@@ -130,7 +172,7 @@ export async function handleMessage(sock, msg) {
 
     setSession(sender, { type: 'mc', unitId, lokasi, step: 'wait_detail' })
     await sock.sendMessage(jid, {
-      text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nIsi detail (5 baris sesuai urutan):\n\n[Problem]\n[Penyebab]\n[Action]\n[Status (open/closed)]\n[Backlog (-kalau tidak ada)]\n\nKetik *!batal* untuk membatalkan.`
+      text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nIsi detail (5 baris sesuai urutan):\n\n[Problem]\n[Penyebab]\n[Action]\n[Status (open/closed)]\n[Backlog (-kalau tidak ada)]\n\nBisa sekalian kirim foto stiker sebagai caption.\nKetik *!batal* untuk membatalkan.`
     }, { quoted: msg })
     return
   }
