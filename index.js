@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import express from 'express'
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -8,6 +9,14 @@ import { Boom } from '@hapi/boom'
 import qrcode from 'qrcode-terminal'
 import pino from 'pino'
 import { handleMessage } from './src/handlers/message.js'
+
+// HTTP server untuk Back4App health check
+const app = express()
+const PORT = process.env.PORT || 3000
+
+app.get('/', (req, res) => res.send('EWACS Bot running'))
+app.get('/health', (req, res) => res.send('OK'))
+app.listen(PORT, () => console.log(`HTTP server listening on port ${PORT}`))
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_session')
