@@ -230,10 +230,14 @@ async function handleDcPhoto(sock, jid, sender, session, mu, gsab, originalMsg) 
   clearSession(sender)
 
   if (originalMsg?.message?.imageMessage) {
-    await sock.sendMessage(jid, { forward: originalMsg })
+    const imageBuffer = await downloadMediaMessage(originalMsg, 'buffer', {}, {
+      logger: { info: () => {}, error: console.error },
+      reuploadRequest: sock.updateMediaMessage
+    })
+    await sock.sendMessage(jid, { image: imageBuffer, caption: template })
+  } else {
+    await sock.sendMessage(jid, { text: template })
   }
-
-  await sock.sendMessage(jid, { text: `${template}` })
 }
 
 async function handleMcPhoto(sock, jid, sender, session, mu, gsab, originalMsg) {
@@ -262,10 +266,14 @@ async function handleMcPhoto(sock, jid, sender, session, mu, gsab, originalMsg) 
   clearSession(sender)
 
   if (originalMsg?.message?.imageMessage) {
-    await sock.sendMessage(jid, { forward: originalMsg })
+    const imageBuffer = await downloadMediaMessage(originalMsg, 'buffer', {}, {
+      logger: { info: () => {}, error: console.error },
+      reuploadRequest: sock.updateMediaMessage
+    })
+    await sock.sendMessage(jid, { image: imageBuffer, caption: template })
+  } else {
+    await sock.sendMessage(jid, { text: template })
   }
-
-  await sock.sendMessage(jid, { text: `${template}` })
 }
 
 function parseMcDetail(text) {
