@@ -14,6 +14,22 @@ const app = express()
 const PORT = process.env.PORT || 3000
 
 let currentQR = null
+let selfPingInterval = null
+let detectedUrl = null
+
+function startSelfPing(url) {
+  if (selfPingInterval) clearInterval(selfPingInterval)
+  detectedUrl = url
+  selfPingInterval = setInterval(async () => {
+    try {
+      const res = await fetch(`${url}/health`)
+      console.log(`[self-ping] ${res.status} → ${url}`)
+    } catch (err) {
+      console.error(`[self-ping] failed: ${err.message}`)
+    }
+  }, 14 * 60 * 1000)
+  console.log(`[self-ping] aktif → ${url}/health setiap 14 menit`)
+}
 
 app.get('/', (req, res) => {
   if (currentQR) {
@@ -31,25 +47,19 @@ app.get('/', (req, res) => {
     res.send('<html><body style="background:#111;color:#0f0;text-align:center;padding:40px"><h2>✅ EWACS Bot Connected!</h2></body></html>')
   }
 })
-app.get('/health', (req, res) => res.send('OK'))
+app.get('/health', (req, res) => {
+  const proto = req.headers['x-forwarded-proto'] || 'https'
+  const host  = req.headers['x-forwarded-host'] || req.headers.host
+  const url   = `${proto}://${host}`
+  if (url && url !== detectedUrl) startSelfPing(url)
+  res.send('OK')
+})
+
 app.listen(PORT, () => {
   console.log(`HTTP server listening on port ${PORT}`)
-
   const appUrl = process.env.APP_URL
-  console.log(`[self-ping] APP_URL = "${appUrl}"`)
-  if (appUrl) {
-    setInterval(async () => {
-      try {
-        const res = await fetch(`${appUrl}/health`)
-        console.log(`[self-ping] ${res.status}`)
-      } catch (err) {
-        console.error(`[self-ping] failed: ${err.message}`)
-      }
-    }, 14 * 60 * 1000)
-    console.log(`[self-ping] aktif → ${appUrl}/health setiap 14 menit`)
-  } else {
-    console.warn('[self-ping] APP_URL tidak di-set, self-ping nonaktif')
-  }
+  if (appUrl) startSelfPing(appUrl)
+  else console.log('[self-ping] menunggu request pertama untuk detect URL...')
 })
 
 async function startBot() {
