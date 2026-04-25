@@ -1,34 +1,45 @@
-const axios = require('axios')
+import { createWorker } from 'tesseract.js'
+import sharp from 'sharp'
 
-const VISION_KEY = process.env.GOOGLE_VISION_KEY
+export async function extractAssetFromImage(imageBuffer) {
+  let worker = null
+  try {
+    // Pre-process: grayscale + normalize biar OCR lebih akurat
+    const processedBuffer = await sharp(imageBuffer)
+      .grayscale()
+      .normalise()
+      .sharpen()
+      .png()
+      .toBuffer()
 
-// Kirim image base64 ke Google Vision, extract teks
-async function extractTextFromImage(base64Image) {
-  if (!VISION_KEY) throw new Error('Google Vision key tidak ada di .env')
+    // Tesseract.js v5 API
+    worker = await createWorker('eng')
+    const { data: { text } } = await worker.recognize(processedBuffer)
+    await worker.terminate()
 
-  const res = await axios.post(
-    `https://vision.googleapis.com/v1/images:annotate?key=${VISION_KEY}`,
-    {
-      requests: [{
-        image: { content: base64Image },
-        features: [{ type: 'TEXT_DETECTION' }]
-      }]
+    return parseAssetText(text)
+  } catch (err) {
+    console.error('OCR error:', err.message)
+    if (worker) {
+      try { await worker.terminate() } catch (_) {}
     }
-  )
-
-  const text = res.data.responses?.[0]?.fullTextAnnotation?.text || ''
-  return text
-}
-
-// Cari pattern MU dan GSAB dari teks OCR hasil Vision
-function parseAssetFromText(text) {
-  const muMatch = text.match(/MU\s*(\d+)/i)
-  const gsabMatch = text.match(/GSAB\s*(\d+)/i)
-
-  return {
-    mu: muMatch ? `MU${muMatch[1]}` : null,
-    gsab: gsabMatch ? `GSAB${gsabMatch[1]}` : null
+    return { mu: null, gsab: null }
   }
 }
 
-module.exports = { extractTextFromImage, parseAssetFromText }
+function parseAssetText(text) {
+  const clean = text.replace(/\s+/g, ' ').toUpperCase()
+
+  const muMatch   = clean.match(/MU[\s\-]?(\d{3,6})/)
+  const gsabMatch = clean.match(/GSAB[\s\-]?(\d{4,8})/)
+  const snMatch   = !gsabMatch
+    ? clean.match(/S[\s\/]?N[\s:\-]?(GSAB[\s\-]?\d{4,8})/)
+    : null
+
+  const mu   = muMatch   ? `MU${muMatch[1]}`   : null
+  let   gsab = gsabMatch ? `GSAB${gsabMatch[1]}` : null
+  if (!gsab && snMatch) gsab = snMatch[1].replace(/\s/g, '')
+
+  console.log(`OCR result → MU: ${mu}, GSAB: ${gsab}`)
+  return { mu, gsab }
+}
