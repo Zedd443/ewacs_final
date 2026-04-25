@@ -1,56 +1,48 @@
-const { getShiftInfo } = require('../utils/shift')
+import { getShift, getTanggal } from '../services/supabase.js'
 
-function generateDailyCheck({ unit, lokasi, mu, gsab }) {
-  const { shift, dateStr } = getShiftInfo()
-  const muStr = mu || 'MU????'
-  const gsabStr = gsab || 'GSAB?????'
+export function generateDailyCheck({ unitId, lokasi, mu, gsab }) {
+  const tanggal = getTanggal()
+  const shift = getShift()
 
-  return (
-    `*DAILY CHECK EWACSPRO*\n` +
-    `${dateStr} | Shift ${shift}\n\n` +
-    `*No unit : ${unit}*\n` +
+  return `*DAILY CHECK EWACSPRO*\n` +
+    `${tanggal} | Shift ${shift}\n\n` +
+    `*No unit : ${unitId.toUpperCase()}*\n` +
     `Lokasi : ${formatLokasi(lokasi)}\n` +
-    `Asset : ${muStr}\n` +
-    `SN : ${gsabStr}\n` +
+    `Asset : ${mu || 'MU????'}\n` +
+    `SN : ${gsab || 'GSAB?????'}\n` +
     `Status : All Oke ✅\n\n` +
     `_Backlog : -_`
-  )
 }
 
-function generateMaintenance({ unit, lokasi, mu, gsab, problem, penyebab, action, status, backlog }) {
-  const { shift, dateStr } = getShiftInfo()
-  const muStr = mu || 'MU????'
-  const gsabStr = gsab || 'GSAB?????'
-  const statusStr = status?.toLowerCase() === 'closed'
-    ? 'Closed ✅'
-    : 'Open 🔴'
-  const backlogStr = backlog || '-'
+export function generateMaintenanceCheck({ unitId, lokasi, mu, gsab, problem, penyebab, action, status, backlog = '-' }) {
+  const tanggal = getTanggal()
+  const shift = getShift()
+  const statusFormatted = status?.toLowerCase() === 'closed' ? 'Closed ✅' : 'Open 🔴'
 
-  return (
-    `*MAINTENANCE CHECK EWACSPRO*\n` +
-    `${dateStr} | Shift ${shift}\n\n` +
-    `*No unit : ${unit}*\n` +
+  return `*MAINTENANCE CHECK EWACSPRO*\n` +
+    `${tanggal} | Shift ${shift}\n\n` +
+    `*No unit : ${unitId.toUpperCase()}*\n` +
     `Problem : ${problem}\n` +
     `Penyebab : ${penyebab}\n` +
     `Action : ${action}\n` +
     `Lokasi : ${formatLokasi(lokasi)}\n` +
-    `Asset : ${muStr}\n` +
-    `SN : ${gsabStr}\n` +
-    `Status : ${statusStr}\n\n` +
-    `Backlog : ${backlogStr}`
-  )
+    `Asset : ${mu || 'MU????'}\n` +
+    `SN : ${gsab || 'GSAB?????'}\n` +
+    `Status : ${statusFormatted}\n\n` +
+    `Backlog : ${backlog}`
 }
 
-// Format lokasi jadi title case dengan prefix WS/PS kalau belum ada
 function formatLokasi(lokasi) {
   if (!lokasi) return '-'
-  const lower = lokasi.toLowerCase()
-  // Kalau sudah ada prefix, return as-is dengan title case
-  if (lower.startsWith('ws ') || lower.startsWith('ps ')) {
-    return lokasi.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+  const l = lokasi.toLowerCase().trim()
+  const map = {
+    'supernova'  : 'WS Supernova',
+    'himalaya'   : 'PS Himalaya',
+    'bengalon'   : 'WS Bengalon',
+    'workshop'   : 'Workshop',
   }
-  // Default prefix WS
-  return 'WS ' + lokasi.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+  for (const [key, val] of Object.entries(map)) {
+    if (l.includes(key)) return val
+  }
+  return lokasi.replace(/\b\w/g, c => c.toUpperCase())
 }
-
-module.exports = { generateDailyCheck, generateMaintenance }
