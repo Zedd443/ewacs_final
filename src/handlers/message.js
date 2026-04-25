@@ -5,6 +5,13 @@ import { extractAssetFromImage } from '../services/ocr.js'
 import { saveDailyCheck, saveMaintenanceCheck, getRekapShift, getRekapUnit, getShift, updateIP } from '../services/supabase.js'
 import { downloadMediaMessage } from '@whiskeysockets/baileys'
 
+const BULAN_MAP = {
+  januari:1, februari:2, maret:3, april:4, mei:5, juni:6,
+  juli:7, agustus:8, september:9, oktober:10, november:11, desember:12
+}
+
+const MC_STEPS = ['problem', 'penyebab', 'action', 'status', 'backlog']
+
 export async function handleMessage(sock, msg) {
   const jid    = msg.key.remoteJid
   const sender = msg.key.participant || msg.key.remoteJid
@@ -19,8 +26,20 @@ export async function handleMessage(sock, msg) {
   )
 
   const session = getSession(sender)
+  const text = body.trim()
 
-  // ── HANDLER FOTO ──────────────────────────────────────────
+  // ── CANCEL ────────────────────────────────────────────────
+  if (text.toLowerCase() === '!batal') {
+    if (session) {
+      clearSession(sender)
+      await sock.sendMessage(jid, { text: '❌ Dibatalkan.' }, { quoted: msg })
+    } else {
+      await sock.sendMessage(jid, { text: 'Tidak ada proses aktif.' }, { quoted: msg })
+    }
+    return
+  }
+
+  // ── HANDLER FOTO (dc/mc wait_photo) ───────────────────────
   if (isImage && session?.step === 'wait_photo') {
     try {
       await sock.sendMessage(jid, { text: '🔍 Membaca stiker asset...' }, { quoted: msg })
@@ -48,7 +67,7 @@ export async function handleMessage(sock, msg) {
 
   // ── HANDLER INPUT MANUAL ASSET ────────────────────────────
   if (session?.step === 'wait_photo') {
-    const manualMatch = body.trim().toUpperCase().match(/^(MU[\d\?]+)\s+(GSAB[\d\?]+)$/)
+    const manualMatch = text.toUpperCase().match(/^(MU[\d\?]+)\s+(GSAB[\d\?]+)$/)
     if (manualMatch) {
       const mu   = manualMatch[1]
       const gsab = manualMatch[2]
@@ -61,7 +80,23 @@ export async function handleMessage(sock, msg) {
     }
   }
 
-  const text = body.trim()
+  // ── HANDLER INPUT DETAIL MC ───────────────────────────────
+  if (session?.type === 'mc' && session?.step === 'wait_detail') {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+    if (lines.length < 4) {
+      await sock.sendMessage(jid, {
+        text: '❌ Kurang lengkap. Isi 5 baris sesuai urutan:\n\n[Problem]\n[Penyebab]\n[Action]\n[Status]\n[Backlog]'
+      }, { quoted: msg })
+      return
+    }
+    const [problem, penyebab, action, status, backlog = '-'] = lines
+    setSession(sender, { ...session, problem, penyebab, action, status, backlog, step: 'wait_photo' })
+    await sock.sendMessage(jid, {
+      text: '📸 Kirim foto stiker asset, atau ketik manual:\n*MU[angka] GSAB[angka]*\n\nKetik *!batal* untuk membatalkan.'
+    }, { quoted: msg })
+    return
+  }
+
   if (!text) return
 
   // ── COMMAND !dc ───────────────────────────────────────────
@@ -77,7 +112,7 @@ export async function handleMessage(sock, msg) {
 
     setSession(sender, { type: 'dc', unitId, lokasi, step: 'wait_photo' })
     await sock.sendMessage(jid, {
-      text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nKirim foto stiker asset (collage ok), atau ketik manual:\n*MU[angka] GSAB[angka]*\nGunakan ? untuk digit ragu: MU3?19 GSAB5267??`
+      text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nKirim foto stiker asset (collage ok), atau ketik manual:\n*MU[angka] GSAB[angka]*\nGunakan ? untuk digit ragu: MU3?19 GSAB5267??\n\nKetik *!batal* untuk membatalkan.`
     }, { quoted: msg })
     return
   }
@@ -95,23 +130,7 @@ export async function handleMessage(sock, msg) {
 
     setSession(sender, { type: 'mc', unitId, lokasi, step: 'wait_detail' })
     await sock.sendMessage(jid, {
-      text: `✅ *${unitId.toUpperCase()}* - ${lokasi}\n\nIsi detail:\n\nProblem:\nPenyebab:\nAction:\nStatus (open/closed):\nBacklog (-kalau tidak ada):\n\nKirim sekaligus dengan foto stiker`
-    }, { quoted: msg })
-    return
-  }
-
-  // ── HANDLER INPUT DETAIL MC ───────────────────────────────
-  if (session?.type === 'mc' && session?.step === 'wait_detail') {
-    const parsed = parseMcDetail(text)
-    if (!parsed.problem) {
-      await sock.sendMessage(jid, {
-        text: '❌ Format tidak terbaca. Pastikan ada baris:\nProblem:\nPenyebab:\nAction:\nStatus:'
-      })
-      return
-    }
-    setSession(sender, { ...session, ...parsed, step: 'wait_photo' })
-    await sock.sendMessage(jid, {
-      text: '📸 Kirim foto stiker asset, atau ketik manual:\n*MU[angka] GSAB[angka]*'
+      text: `✅ *${unitId.toUpperCase()}* - ${lokasi || '-'}\n\nIsi detail (5 baris sesuai urutan):\n\n[Problem]\n[Penyebab]\n[Action]\n[Status (open/closed)]\n[Backlog (-kalau tidak ada)]\n\nKetik *!batal* untuk membatalkan.`
     }, { quoted: msg })
     return
   }
@@ -130,9 +149,50 @@ export async function handleMessage(sock, msg) {
     return
   }
 
-  // ── COMMAND !rekap [UNIT] ─────────────────────────────────
+  // ── COMMAND !rekap [bulan] [tahun] ────────────────────────
+  // Format: !rekap april 2026  |  !rekap april 2026 DT5010
   if (text.toLowerCase().startsWith('!rekap ')) {
-    const unitId = text.slice(7).trim().toUpperCase()
+    const parts = text.slice(7).trim().toLowerCase().split(/\s+/)
+    const bulanInput = parts[0]
+    const bulanNum = BULAN_MAP[bulanInput] || parseInt(bulanInput)
+
+    if (bulanNum && bulanNum >= 1 && bulanNum <= 12) {
+      const now = new Date()
+      const wib = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+      const tahun = parseInt(parts[1]) || wib.getFullYear()
+      const unitFilter = parts[2]?.toUpperCase()
+
+      const { units, perUnit, checks } = await getRekapBulanan(bulanNum, tahun)
+
+      if (unitFilter) {
+        // Rekap unit tertentu di bulan itu
+        const unitChecks = checks.filter(c => c.unit_id === unitFilter)
+        if (!unitChecks.length) {
+          await sock.sendMessage(jid, { text: `❌ Tidak ada data ${unitFilter} di ${namaBulan(bulanNum)} ${tahun}` })
+          return
+        }
+        const lines = unitChecks.map(c =>
+          `• ${c.tanggal} Shift ${c.shift} — ${c.lokasi}`
+        ).join('\n')
+        await sock.sendMessage(jid, { text: `📋 *${unitFilter} — ${namaBulan(bulanNum)} ${tahun}*\n\n${lines}` })
+      } else {
+        // Rekap semua unit bulan itu
+        const totalChecks = Object.values(perUnit).flat().length
+        let out = `📊 *Rekap ${namaBulan(bulanNum)} ${tahun}*\n`
+        out += `Total: ${units.length} unit | ${totalChecks} check\n\n`
+        out += `Unit     Chk\n`
+        out += `${'─'.repeat(20)}\n`
+        for (const u of units) {
+          const chk = (perUnit[u.unit_id] || []).length
+          out += `${u.unit_id.padEnd(8)} ${chk}\n`
+        }
+        await sock.sendMessage(jid, { text: '```\n' + out + '```' })
+      }
+      return
+    }
+
+    // Fallback: !rekap DT5010 (history unit, bulan sekarang)
+    const unitId = parts[0].toUpperCase()
     const history = await getRekapUnit(unitId)
     if (!history || history.length === 0) {
       await sock.sendMessage(jid, { text: `❌ Tidak ada history untuk unit ${unitId}` })
@@ -163,34 +223,6 @@ export async function handleMessage(sock, msg) {
     return
   }
 
-  // ── COMMAND !rekap bulan ──────────────────────────────────
-  if (text.toLowerCase().startsWith('!rekap bulan')) {
-    const parts = text.split(' ')
-    const now = new Date()
-    const wib = new Date(now.getTime() + 8 * 60 * 60 * 1000)
-    const bulan = parseInt(parts[2]) || (wib.getMonth() + 1)
-    const tahun = parseInt(parts[3]) || wib.getFullYear()
-    const { units, perUnit } = await getRekapBulanan(bulan, tahun)
-
-    const totalChecks = Object.values(perUnit).flat().length
-    let out = `📊 *Rekap ${namaBulan(bulan)} ${tahun}*\n`
-    out += `Total: ${units.length} unit | ${totalChecks} check\n\n`
-    out += `Unit     MU       GSAB          Chk  IP\n`
-    out += `${'─'.repeat(48)}\n`
-
-    for (const u of units) {
-      const checks = perUnit[u.unit_id] || []
-      const mu   = (u.asset_mu   || 'MUxxxx').padEnd(8)
-      const gsab = (u.asset_gsab || 'GSABxxxxx').padEnd(13)
-      const ip   = u.ip || '-'
-      const chk  = String(checks.length).padEnd(4)
-      out += `${u.unit_id.padEnd(8)} ${mu} ${gsab} ${chk} ${ip}\n`
-    }
-
-    await sock.sendMessage(jid, { text: '```\n' + out + '```' })
-    return
-  }
-
   // ── COMMAND !help ─────────────────────────────────────────
   if (text.toLowerCase() === '!help') {
     await sock.sendMessage(jid, {
@@ -198,9 +230,10 @@ export async function handleMessage(sock, msg) {
             `!dc [Unit] [Lokasi] — Daily Check\n` +
             `!mc [Unit] [Lokasi] — Maintenance Check\n` +
             `!rekap — Rekap shift hari ini\n` +
-            `!rekap [Unit] — History unit tertentu\n` +
-            `!rekap bulan [bln] [thn] — Rekap bulanan\n` +
+            `!rekap [bulan] [tahun] — Rekap bulanan\n` +
+            `!rekap [bulan] [tahun] [Unit] — Rekap unit tertentu\n` +
             `!ip [Unit] [IP] — Update IP unit\n` +
+            `!batal — Batalkan proses aktif\n` +
             `!help — Menu ini`
     })
     return
@@ -274,19 +307,4 @@ async function handleMcPhoto(sock, jid, sender, session, mu, gsab, originalMsg) 
   } else {
     await sock.sendMessage(jid, { text: template })
   }
-}
-
-function parseMcDetail(text) {
-  const result = {}
-  for (const line of text.split('\n')) {
-    const [key, ...rest] = line.split(':')
-    const val = rest.join(':').trim()
-    const k = key.toLowerCase().trim()
-    if (k === 'problem')  result.problem  = val
-    if (k === 'penyebab') result.penyebab = val
-    if (k === 'action')   result.action   = val
-    if (k === 'status')   result.status   = val
-    if (k === 'backlog')  result.backlog  = val || '-'
-  }
-  return result
 }
