@@ -1,4 +1,6 @@
+import { getRekapBulanan, namaBulan } from '../services/rekap.js'
 import { getSession, setSession, clearSession } from '../utils/session.js'
+import { getRekapBulanan, namaBulan } from '../services/rekap.js'
 import { generateDailyCheck, generateMaintenanceCheck } from '../utils/template.js'
 import { extractAssetFromImage } from '../services/ocr.js'
 import { saveDailyCheck, saveMaintenanceCheck, getRekapShift, getRekapUnit, getShift, updateIP } from '../services/supabase.js'
@@ -162,6 +164,34 @@ export async function handleMessage(sock, msg) {
     return
   }
 
+  // ── COMMAND !rekap bulan ──────────────────────────────────
+  if (text.toLowerCase().startsWith('!rekap bulan')) {
+    const parts = text.split(' ')
+    const now = new Date()
+    const wib = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+    const bulan = parseInt(parts[2]) || (wib.getMonth() + 1)
+    const tahun = parseInt(parts[3]) || wib.getFullYear()
+    const { units, perUnit } = await getRekapBulanan(bulan, tahun)
+
+    const totalChecks = Object.values(perUnit).flat().length
+    let out = `📊 *Rekap ${namaBulan(bulan)} ${tahun}*\n`
+    out += `Total: ${units.length} unit | ${totalChecks} check\n\n`
+    out += `Unit     MU       GSAB          Chk  IP\n`
+    out += `${'─'.repeat(48)}\n`
+
+    for (const u of units) {
+      const checks = perUnit[u.unit_id] || []
+      const mu   = (u.asset_mu   || 'MUxxxx').padEnd(8)
+      const gsab = (u.asset_gsab || 'GSABxxxxx').padEnd(13)
+      const ip   = u.ip || '-'
+      const chk  = String(checks.length).padEnd(4)
+      out += `${u.unit_id.padEnd(8)} ${mu} ${gsab} ${chk} ${ip}\n`
+    }
+
+    await sock.sendMessage(jid, { text: '```\n' + out + '```' })
+    return
+  }
+
   // ── COMMAND !help ─────────────────────────────────────────
   if (text.toLowerCase() === '!help') {
     await sock.sendMessage(jid, {
@@ -170,6 +200,7 @@ export async function handleMessage(sock, msg) {
             `!mc [Unit] [Lokasi] — Maintenance Check\n` +
             `!rekap — Rekap shift hari ini\n` +
             `!rekap [Unit] — History unit tertentu\n` +
+            `!rekap bulan [bln] [thn] — Rekap bulanan\n` +
             `!ip [Unit] [IP] — Update IP unit\n` +
             `!help — Menu ini`
     })
@@ -260,3 +291,7 @@ function parseMcDetail(text) {
   }
   return result
 }
+
+// ── REKAP BULANAN (tambahan di bawah exports) ─────────────────
+// Import di atas sudah ada, ini handler tambahan
+// Dipanggil dari handleMessage via !rekap bulan
