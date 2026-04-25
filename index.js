@@ -7,14 +7,31 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import qrcode from 'qrcode-terminal'
+import QRCode from 'qrcode'
 import pino from 'pino'
 import { handleMessage } from './src/handlers/message.js'
 
-// HTTP server untuk Back4App health check
 const app = express()
 const PORT = process.env.PORT || 3000
 
-app.get('/', (req, res) => res.send('EWACS Bot running'))
+let currentQR = null
+
+app.get('/', (req, res) => {
+  if (currentQR) {
+    res.send(`
+      <html>
+        <head><title>EWACS Bot QR</title></head>
+        <body style="text-align:center;padding:40px;background:#111;color:#fff">
+          <h2>📱 Scan QR dengan WhatsApp</h2>
+          <img src="${currentQR}" style="width:300px;height:300px"/>
+          <p>Refresh halaman ini kalau QR expired</p>
+        </body>
+      </html>
+    `)
+  } else {
+    res.send('<html><body style="background:#111;color:#0f0;text-align:center;padding:40px"><h2>✅ EWACS Bot Connected!</h2></body></html>')
+  }
+})
 app.get('/health', (req, res) => res.send('OK'))
 app.listen(PORT, () => console.log(`HTTP server listening on port ${PORT}`))
 
@@ -30,18 +47,24 @@ async function startBot() {
     browser: ['EWACS Bot', 'Chrome', '1.0.0']
   })
 
-  sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      console.log('\n📱 Scan QR ini dengan WhatsApp:\n')
+      console.log('\n📱 Buka URL app untuk scan QR\n')
       qrcode.generate(qr, { small: true })
+      // Generate QR sebagai image base64 untuk ditampilkan di browser
+      currentQR = await QRCode.toDataURL(qr)
     }
     if (connection === 'close') {
+      currentQR = null
       const reason = new Boom(lastDisconnect?.error)?.output?.statusCode
       const shouldReconnect = reason !== DisconnectReason.loggedOut
       console.log(`⚠️  Koneksi terputus (${reason}). Reconnect: ${shouldReconnect}`)
       if (shouldReconnect) setTimeout(startBot, 3000)
     }
-    if (connection === 'open') console.log('✅ EWACS Bot terhubung!')
+    if (connection === 'open') {
+      currentQR = null
+      console.log('✅ EWACS Bot terhubung!')
+    }
   })
 
   sock.ev.on('creds.update', saveCreds)
