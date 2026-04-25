@@ -36,6 +36,7 @@ app.listen(PORT, () => {
   console.log(`HTTP server listening on port ${PORT}`)
 
   const appUrl = process.env.APP_URL
+  console.log(`[self-ping] APP_URL = "${appUrl}"`)
   if (appUrl) {
     setInterval(async () => {
       try {
