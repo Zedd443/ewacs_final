@@ -33,7 +33,24 @@ app.get('/', (req, res) => {
   }
 })
 app.get('/health', (req, res) => res.send('OK'))
-app.listen(PORT, () => console.log(`HTTP server listening on port ${PORT}`))
+app.listen(PORT, () => {
+  console.log(`HTTP server listening on port ${PORT}`)
+
+  const appUrl = process.env.APP_URL
+  if (appUrl) {
+    setInterval(async () => {
+      try {
+        const res = await fetch(`${appUrl}/health`)
+        console.log(`[self-ping] ${res.status}`)
+      } catch (err) {
+        console.error(`[self-ping] failed: ${err.message}`)
+      }
+    }, 4 * 60 * 1000)
+    console.log(`[self-ping] aktif → ${appUrl}/health setiap 4 menit`)
+  } else {
+    console.warn('[self-ping] APP_URL tidak di-set, self-ping nonaktif')
+  }
+})
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_session')
