@@ -22,9 +22,10 @@ export async function useSupabaseAuthState() {
 
   const writeData = async (key, value) => {
     const serialized = JSON.stringify(value, BufferJSON.replacer)
-    await supabase
+    const { error } = await supabase
       .from(TABLE)
       .upsert({ key, value: serialized }, { onConflict: 'key' })
+    if (error) console.error(`[authState] write error (${key}):`, error.message)
   }
 
   const removeData = async (key) => {
@@ -61,6 +62,7 @@ export async function useSupabaseAuthState() {
     },
     saveCreds: async () => {
       await writeData('creds', creds)
+      console.log('[authState] creds saved')
     }
   }
 }
