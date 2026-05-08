@@ -1,17 +1,11 @@
 import { createWorker } from 'tesseract.js'
-import Jimp from 'jimp'
 
 export async function extractAssetFromImage(imageBuffer) {
   let worker = null
   try {
-    const image = await Jimp.read(imageBuffer)
-    image.grayscale().contrast(0.5)
-    const processedBuffer = await image.getBufferAsync(Jimp.MIME_PNG)
-
     worker = await createWorker('eng')
-    const { data: { text } } = await worker.recognize(processedBuffer)
+    const { data: { text } } = await worker.recognize(imageBuffer)
     await worker.terminate()
-
     return parseAssetText(text)
   } catch (err) {
     console.error('OCR error:', err.message)
