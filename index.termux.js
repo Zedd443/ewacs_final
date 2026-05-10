@@ -1,11 +1,11 @@
 import 'dotenv/config'
 import makeWASocket, {
-  useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import qrcode from 'qrcode-terminal'
+import QRCode from 'qrcode'
 import pino from 'pino'
 import { useSupabaseAuthState } from './src/services/authState.js'
 import { handleMessage } from './src/handlers/message.js'
@@ -22,10 +22,18 @@ async function startBot() {
     browser: ['EWACS Bot', 'Chrome', '1.0.0']
   })
 
-  sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      console.log('\n📱 Scan QR ini dengan WhatsApp:\n')
+      // Tampil di terminal juga
       qrcode.generate(qr, { small: true })
+      // Simpan sebagai gambar ke gallery
+      try {
+        await QRCode.toFile('/sdcard/ewacs_qr.png', qr, { width: 512 })
+        console.log('\n✅ QR disimpan di Gallery: ewacs_qr.png')
+        console.log('Buka Gallery HP dan scan gambar tersebut\n')
+      } catch (err) {
+        console.log('QR gagal disimpan ke gallery, scan dari terminal')
+      }
     }
     if (connection === 'close') {
       const reason = new Boom(lastDisconnect?.error)?.output?.statusCode
