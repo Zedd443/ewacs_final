@@ -1,11 +1,20 @@
 import { createWorker } from 'tesseract.js'
+import sharp from 'sharp'
 
 export async function extractAssetFromImage(imageBuffer) {
   let worker = null
   try {
+    const processedBuffer = await sharp(imageBuffer)
+      .grayscale()
+      .normalise()
+      .sharpen()
+      .png()
+      .toBuffer()
+
     worker = await createWorker('eng')
-    const { data: { text } } = await worker.recognize(imageBuffer)
+    const { data: { text } } = await worker.recognize(processedBuffer)
     await worker.terminate()
+
     return parseAssetText(text)
   } catch (err) {
     console.error('OCR error:', err.message)
